@@ -27,34 +27,34 @@ if (!fs.existsSync(framesDir)) {
   fs.mkdirSync(framesDir, { recursive: true });
 }
 
-// Middleware
+// Helmet setup
 app.use(helmet({
-  crossOriginResourcePolicy: { policy: "cross-origin" }, // Allow cross-origin requests
-  crossOriginEmbedderPolicy: false // Disable COEP which can block images
+  crossOriginResourcePolicy: { policy: "cross-origin" },
+  crossOriginEmbedderPolicy: false
 }));
+
 app.use(compression());
 app.use(morgan('combined'));
-// Configure allowed origins from environment variables
+
+// Setup allowed origins
 const allowedOrigins = process.env.ALLOWED_ORIGINS 
-  ? process.env.ALLOWED_ORIGINS.split(',')
+  ? process.env.ALLOWED_ORIGINS.split(',').map(origin => origin.trim().replace(/\/$/, ''))
   : [
       'http://localhost:5173',
       'http://localhost:3000',
       'http://localhost:3001',
-      'https://frameer.netlify.app/', // Replace with your actual frontend domain
+      'https://frameer.netlify.app'
     ];
 
 console.log('Allowed CORS origins:', allowedOrigins);
 
+// Global CORS middleware
 app.use(cors({
   origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl requests)
-    if (!origin) return callback(null, true);
-    
-    if (allowedOrigins.indexOf(origin) !== -1) {
+    if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
-      console.log('CORS blocked origin:', origin);
+      console.warn('Blocked CORS origin:', origin);
       callback(new Error('Not allowed by CORS'));
     }
   },
@@ -63,62 +63,52 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
+// Logging request origins
+app.use((req, res, next) => {
+  console.log('Incoming request from origin:', req.headers.origin);
+  next();
+});
+
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Static file serving with CORS and logging
-app.use('/uploads', (req, res, next) => {
-  console.log(`Static file request: /uploads${req.path}`);
-  // Set comprehensive CORS headers for static files
-  res.header('Access-Control-Allow-Origin', 'http://localhost:5173');
-  res.header('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
-  res.header('Access-Control-Allow-Credentials', 'true');
-  res.header('Cross-Origin-Resource-Policy', 'cross-origin');
-  
+// Static file middleware with dynamic CORS
+const applyCORSHeaders = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+  const origin = req.headers.origin;
+  if (origin && allowedOrigins.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  }
+  res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+
   if (req.method === 'OPTIONS') {
-    res.sendStatus(200);
-    return;
+    return res.sendStatus(200);
   }
   next();
-}, express.static(uploadDir));
+};
 
-app.use('/frames', (req, res, next) => {
-  console.log(`Frame request: /frames${req.path}`);
-  const fullPath = path.join(framesDir, req.path);
-  console.log(`Looking for file at: ${fullPath}`);
-  console.log(`File exists: ${fs.existsSync(fullPath)}`);
-  
-  // Set comprehensive CORS headers for static files
-  res.header('Access-Control-Allow-Origin', 'http://localhost:5173');
-  res.header('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
-  res.header('Access-Control-Allow-Credentials', 'true');
-  res.header('Cross-Origin-Resource-Policy', 'cross-origin');
-  
-  if (req.method === 'OPTIONS') {
-    res.sendStatus(200);
-    return;
-  }
-  next();
-}, express.static(framesDir));
+app.use('/uploads', applyCORSHeaders, express.static(uploadDir));
+app.use('/frames', applyCORSHeaders, express.static(framesDir));
 
-// Routes
+// API Routes
 app.use('/api/video', videoRoutes);
 
-// Health check
+// Health check route
 app.get('/health', (req, res) => {
   res.json({ status: 'OK', timestamp: new Date().toISOString() });
 });
 
-// Error handling
+// Error handler
 app.use(errorHandler);
 
-// 404 handler
+// 404 route
 app.use('*', (req, res) => {
   res.status(404).json({ error: 'Route not found' });
 });
 
+// Start server
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
   console.log(`Environment: ${process.env.NODE_ENV}`);
