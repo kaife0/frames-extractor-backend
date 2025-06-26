@@ -73,7 +73,7 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Static file middleware with dynamic CORS
-const applyCORSHeaders = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+const applyCORSHeaders = (req: express.Request, res: express.Response, next: express.NextFunction): void => {
   const origin = req.headers.origin;
   if (origin && allowedOrigins.includes(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
@@ -84,7 +84,8 @@ const applyCORSHeaders = (req: express.Request, res: express.Response, next: exp
   res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
 
   if (req.method === 'OPTIONS') {
-    return res.sendStatus(200);
+    res.sendStatus(200);
+    return;
   }
   next();
 };
